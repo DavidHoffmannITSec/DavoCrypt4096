@@ -50,26 +50,57 @@ public class KeyGenerator {
 
     private BigInteger generateRandomBigInteger(int bitLength) {
         BigInteger result = BigInteger.ONE;
-        BigInteger seed = BigInteger.valueOf(System.nanoTime());
+        BigInteger seed = BigInteger.valueOf(getHardwareEntropy());
 
         for (int i = 0; i < bitLength; i++) {
             seed = seed.xor(seed.shiftLeft(21))
-                    .add(BigInteger.valueOf(System.currentTimeMillis()))
-                    .xor(BigInteger.valueOf(Thread.currentThread().threadId()))
-                    .xor(BigInteger.valueOf(getUserInputEntropy())); // Benutzerinteraktion
+                    .add(BigInteger.valueOf(getDynamicHardwareState())) // Hardware-Status
+                    .xor(BigInteger.valueOf(getPseudoPhysicalNoise())) // Simuliertes physikalisches Rauschen
+                    .xor(BigInteger.valueOf(getHashBasedEntropy())) // Kombinierte Systementropie
+                    .xor(BigInteger.valueOf(getRandomizedThreadState())); // Dynamische Thread-Entropie
             result = result.shiftLeft(1).or(seed.and(BigInteger.ONE));
         }
 
         return result.setBit(bitLength - 1).setBit(0); // Setze MSB und LSB
     }
 
-    private long getUserInputEntropy() {
-        // Simulierte Benutzerinteraktion als zusätzliche Entropiequelle
-        long entropy = System.nanoTime();
-        entropy ^= entropy << 13;
-        entropy ^= entropy >>> 7;
-        entropy ^= entropy << 17;
+    private long getHardwareEntropy() {
+        // CPU-Cache-Größe und Prozessinformationen als Basis
+        long entropy = Runtime.getRuntime().freeMemory() ^ Runtime.getRuntime().maxMemory();
+        entropy ^= Runtime.getRuntime().availableProcessors();
+        entropy ^= Runtime.getRuntime().totalMemory();
         return entropy;
+    }
+
+    private long getDynamicHardwareState() {
+        // Simulierte dynamische Hardware-Schwankungen
+        long state = (Runtime.getRuntime().freeMemory() ^ (Runtime.getRuntime().maxMemory() << 3));
+        state ^= (long) (Math.random() * Runtime.getRuntime().availableProcessors());
+        state ^= Thread.activeCount();
+        return state;
+    }
+
+    private long getPseudoPhysicalNoise() {
+        // Simuliertes physikalisches Rauschen
+        double chaos = Math.sin(Math.random() * Math.PI) + Math.cos(Math.random() * Math.PI / 2);
+        return Double.doubleToLongBits(chaos);
+    }
+
+    private long getHashBasedEntropy() {
+        // Kombinierte Systeminformationen als Hash
+        long memoryState = Runtime.getRuntime().freeMemory() ^ Runtime.getRuntime().maxMemory();
+        long hash = (memoryState ^ Thread.currentThread().threadId()) * 0x9E3779B97F4A7C15L;
+        return hash ^ (hash >>> 32);
+    }
+
+    private long getRandomizedThreadState() {
+        // Dynamische Thread-basierte Entropie
+        long threadState = Thread.currentThread().threadId();
+        threadState ^= Thread.activeCount() * 31L;
+        threadState ^= threadState << 13;
+        threadState ^= threadState >>> 7;
+        threadState ^= threadState << 17;
+        return threadState;
     }
 
     private BigInteger advancedBitMix(BigInteger value) {
@@ -110,17 +141,31 @@ public class KeyGenerator {
         return value;
     }
 
+
     private BigInteger nonLinearTransform(BigInteger value, int bitLength) {
         BigInteger constantPi = generateDynamicConstant("3141592653589793238");
         BigInteger constantE = generateDynamicConstant("2718281828459045235");
         BigInteger constantPhi = generateDynamicConstant("1618033988749894848");
 
-        // Optimierte Transformationen
-        value = value.multiply(value).xor(BigInteger.valueOf((long) value.bitLength() * 3));
-        value = value.add(BigInteger.valueOf(value.bitCount() % 10));
-        value = value.xor(constantPhi).mod(constantE);
+        // Quadratische Transformation, abhängig von constantPi und bitLength
+        value = value.multiply(value).mod(constantPi);
+
+        // Dynamische Transformation mit constantPhi
+        value = value.add(constantPhi.shiftLeft(bitLength % 31)).xor(constantE);
+
+        // Exponentielle Transformation
+        long bitLengthMultiplied = (long) value.bitLength() * 2;
+        value = value.xor(BigInteger.valueOf(bitLengthMultiplied)).multiply(constantPhi);
+
+        // Modulo Transformation mit constantE
+        value = value.mod(constantE);
+
+        // Kombinierte Modulation mit allen Konstanten
+        value = value.multiply(constantPi).xor(constantPhi).mod(BigInteger.TWO.pow(bitLength / 2));
+
         return value;
     }
+
 
     private BigInteger generateDynamicConstant(String baseValue) {
         BigInteger base = new BigInteger(baseValue);

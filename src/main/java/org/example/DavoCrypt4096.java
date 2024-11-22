@@ -141,9 +141,47 @@ public class DavoCrypt4096 {
 	}
 
 	private String generateSalt() {
-		long timestamp = System.currentTimeMillis();
-		return Base64.getEncoder().encodeToString(BigInteger.valueOf(timestamp).toByteArray());
+		// Sammle dynamische Entropiequellen
+		long nanoTime = System.nanoTime();
+		long freeMemory = Runtime.getRuntime().freeMemory();
+		long totalMemory = Runtime.getRuntime().totalMemory();
+		long threadId = Thread.currentThread().threadId();
+		int threadPriority = Thread.currentThread().getPriority();
+		int hashCode = System.identityHashCode(this);
+
+		// Kombiniere Entropiequellen
+		long initialEntropy = nanoTime ^ freeMemory ^ totalMemory ^ threadId ^ threadPriority ^ hashCode;
+
+		// Umgebungsabhängige Entropie
+		String envData = String.join("", System.getenv().values());
+		long envHash = envData.hashCode();
+
+		// Erzeuge den Basissalt
+		BigInteger saltValue = BigInteger.valueOf(initialEntropy)
+				.xor(BigInteger.valueOf(envHash))
+				.multiply(BigInteger.valueOf(0x9E3779B97F4A7C15L)) // Goldener Schnitt
+				.add(BigInteger.valueOf(threadId))
+				.mod(BigInteger.TWO.pow(256)); // Begrenzung auf 256 Bits
+
+		// Dynamische Rückkopplungsschleife
+		for (int i = 0; i < 10; i++) {
+			long dynamicFactor = (System.nanoTime() ^ ((long) i * threadPriority)) + freeMemory;
+			saltValue = saltValue.multiply(BigInteger.valueOf(dynamicFactor))
+					.xor(BigInteger.valueOf(System.currentTimeMillis() >> i))
+					.mod(BigInteger.TWO.pow(256));
+		}
+
+		// Nichtlineare Permutationen (ähnlich wie S-Box)
+		saltValue = saltValue.xor(saltValue.shiftLeft(13))
+				.xor(saltValue.shiftRight(7))
+				.multiply(BigInteger.valueOf(31))
+				.mod(BigInteger.TWO.pow(256));
+
+		// Base64-Kodierung des endgültigen Salt-Werts
+		return Base64.getEncoder().encodeToString(saltValue.toByteArray());
 	}
+
+
 
 	private void validateInput(String input, String name) {
 		if (input == null || input.isEmpty()) {

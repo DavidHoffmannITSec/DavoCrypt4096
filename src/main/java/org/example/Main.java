@@ -5,7 +5,7 @@ public class Main {
         DavoCrypt4096 davoCrypt = new DavoCrypt4096();
 
         String originalText = "Hallo das hier ist ein Test: 🌍! ÄÖÜ äöü 中 ع 🚀";
-        System.out.println("Original Text: " + originalText);
+        System.out.println("Original Text: " + originalText + "\n");
 
         // Verschlüsselung
         String encryptedText = davoCrypt.encrypt(originalText);
@@ -13,6 +13,6 @@ public class Main {
 
         // Entschlüsselung
         String decryptedText = davoCrypt.decrypt(encryptedText);
-        System.out.println("Decrypted Text: " + decryptedText);
+        System.out.println("\nDecrypted Text: " + decryptedText);
     }
 }

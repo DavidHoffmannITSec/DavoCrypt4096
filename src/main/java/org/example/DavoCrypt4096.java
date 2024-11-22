@@ -3,6 +3,8 @@ package org.example;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
 public class DavoCrypt4096 {
 	private final KeyGenerator keyGenerator;
@@ -22,66 +24,65 @@ public class DavoCrypt4096 {
 	}
 
 	public String encrypt(String plaintext) {
-		String paddedPlaintext = addPadding(plaintext);
-		BigInteger plaintextInt = new BigInteger(paddedPlaintext.getBytes(StandardCharsets.UTF_8));
+		byte[] plaintextBytes = plaintext.getBytes(StandardCharsets.UTF_8);
+		int maxPlaintextLength = Math.max(1, modulus.bitLength() / 8 - 42); // Sicherstellen, dass die Länge positiv ist
 
-		if (plaintextInt.compareTo(modulus) >= 0) {
-			throw new IllegalArgumentException("Plaintext too large for encryption. Split into smaller parts.");
+		// Prüfen, ob der Text zu groß ist
+		if (plaintextBytes.length > maxPlaintextLength) {
+			return splitAndEncrypt(plaintextBytes, maxPlaintextLength);
 		}
 
+		// Einzelner Block verschlüsseln
+		BigInteger plaintextInt = new BigInteger(1, plaintextBytes);
 		BigInteger encrypted = plaintextInt.modPow(publicKey, modulus);
 		return Base64.getEncoder().encodeToString(encrypted.toByteArray());
 	}
 
+	private String splitAndEncrypt(byte[] plaintextBytes, int maxBlockSize) {
+		StringBuilder encryptedBuilder = new StringBuilder();
+		int offset = 0;
+
+		while (offset < plaintextBytes.length) {
+			int blockSize = Math.min(maxBlockSize, plaintextBytes.length - offset);
+			byte[] block = new byte[blockSize];
+			System.arraycopy(plaintextBytes, offset, block, 0, blockSize);
+
+			BigInteger blockInt = new BigInteger(1, block);
+			BigInteger encryptedBlock = blockInt.modPow(publicKey, modulus);
+			encryptedBuilder.append(Base64.getEncoder().encodeToString(encryptedBlock.toByteArray())).append(":");
+
+			offset += blockSize;
+		}
+
+		return encryptedBuilder.substring(0, encryptedBuilder.length() - 1); // Entferne das letzte ":"
+	}
+
 	public String decrypt(String ciphertext) {
-		BigInteger ciphertextInt = new BigInteger(Base64.getDecoder().decode(ciphertext));
+		if (ciphertext.contains(":")) {
+			return decryptSplitCiphertext(ciphertext);
+		}
+
+		// Einzelner Block entschlüsseln
+		BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(ciphertext));
 		BigInteger decrypted = ciphertextInt.modPow(privateKey, modulus);
-
-		String paddedPlaintext = new String(decrypted.toByteArray(), StandardCharsets.UTF_8);
-		return removePadding(paddedPlaintext);
+		return new String(decrypted.toByteArray(), StandardCharsets.UTF_8);
 	}
 
-	private String addPadding(String plaintext) {
-		String hash = simpleHash(plaintext);
-		StringBuilder padded = new StringBuilder(plaintext + ":" + hash);
+	private String decryptSplitCiphertext(String ciphertext) {
+		String[] blocks = ciphertext.split(":");
+		ByteArrayOutputStream decryptedStream = new ByteArrayOutputStream();
 
-		// Erzwinge eine Mindestgröße
-		int minSize = modulus.bitLength() / 8 - 11; // Max RSA-Größe
-		while (padded.length() < minSize) {
-			padded.insert(0, '0'); // Padding mit führenden Nullen
+		for (String block : blocks) {
+			BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(block));
+			BigInteger decryptedBlock = ciphertextInt.modPow(privateKey, modulus);
+			try {
+				decryptedStream.write(decryptedBlock.toByteArray());
+			} catch (IOException e) {
+				throw new RuntimeException("Error processing block during decryption", e);
+			}
 		}
 
-		return padded.toString();
-	}
-
-
-
-	private String removePadding(String paddedPlaintext) {
-		int separatorIndex = paddedPlaintext.lastIndexOf(':');
-		if (separatorIndex == -1) {
-			throw new IllegalArgumentException("Invalid padding");
-		}
-
-		String plaintext = paddedPlaintext.substring(0, separatorIndex);
-		String hash = paddedPlaintext.substring(separatorIndex + 1);
-
-		if (!hash.equals(simpleHash(plaintext))) {
-			throw new IllegalArgumentException("Padding verification failed. Data integrity compromised.");
-		}
-
-		return plaintext;
-	}
-
-	private String simpleHash(String input) {
-		BigInteger hash = BigInteger.ZERO;
-		byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-
-		for (byte b : bytes) {
-			hash = hash.xor(BigInteger.valueOf(b & 0xFF));
-			hash = hash.multiply(BigInteger.valueOf(31)).mod(BigInteger.valueOf(1_000_000_007)); // Prime modulus
-		}
-
-		return hash.toString(16); // Hex-String
+		return new String(decryptedStream.toByteArray(), StandardCharsets.UTF_8);
 	}
 
 	public BigInteger getPublicKey() {

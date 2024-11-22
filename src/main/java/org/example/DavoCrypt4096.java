@@ -1,10 +1,12 @@
 package org.example;
 
+import java.io.*;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Base64;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 
 public class DavoCrypt4096 {
 	private final KeyGenerator keyGenerator;
@@ -196,6 +198,22 @@ public class DavoCrypt4096 {
 		if (input == null || input.isEmpty()) {
 			throw new IllegalArgumentException(name + " cannot be null or empty.");
 		}
+	}
+
+	public void encryptFile(String filePath) throws IOException {
+		Path path = Path.of(filePath);
+		byte[] fileBytes = Files.readAllBytes(path);
+		String encryptedData = encrypt(new String(fileBytes, StandardCharsets.UTF_8));
+
+		Files.writeString(path, encryptedData, StandardOpenOption.TRUNCATE_EXISTING);
+	}
+
+	public void decryptFile(String filePath) throws IOException {
+		Path path = Path.of(filePath);
+		byte[] fileBytes = Files.readAllBytes(path);
+		String decryptedData = decrypt(new String(fileBytes, StandardCharsets.UTF_8));
+
+		Files.writeString(path, decryptedData, StandardOpenOption.TRUNCATE_EXISTING);
 	}
 
 	public BigInteger getPublicKey() {

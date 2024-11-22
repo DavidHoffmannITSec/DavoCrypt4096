@@ -24,28 +24,21 @@ public class DavoCrypt4096 {
 	}
 
 	public String encrypt(String plaintext) {
-		if (plaintext == null || plaintext.isEmpty()) {
-			throw new IllegalArgumentException("Plaintext cannot be null or empty.");
-		}
+		validateInput(plaintext, "Plaintext");
 
 		byte[] plaintextBytes = plaintext.getBytes(StandardCharsets.UTF_8);
 		int maxPlaintextLength = Math.max(1, modulus.bitLength() / 8 - 42);
 
-		// Prüfen, ob der Text zu groß ist
-		String encryptedData;
-		if (plaintextBytes.length > maxPlaintextLength) {
-			encryptedData = splitAndEncrypt(plaintextBytes, maxPlaintextLength);
-		} else {
-			BigInteger plaintextInt = new BigInteger(1, plaintextBytes);
-			BigInteger encrypted = plaintextInt.modPow(publicKey, modulus);
-			encryptedData = Base64.getEncoder().encodeToString(encrypted.toByteArray());
-		}
+		String encryptedData = (plaintextBytes.length > maxPlaintextLength)
+				? splitAndEncrypt(plaintextBytes, maxPlaintextLength)
+				: encryptBlock(plaintextBytes);
 
-		// Generiere eine Signatur für die Klartextdaten
-		String signature = generateSignature(plaintextBytes);
+		// Generiere Signatur mit Salt
+		String salt = generateSalt();
+		String signature = generateSignature(plaintextBytes, salt);
 
-		// Verschlüsselter Text und Signatur
-		return encryptedData + ":" + signature;
+		// Verschlüsselter Text + Signatur + Salt
+		return encryptedData + ":" + signature + ":" + salt;
 	}
 
 	private String splitAndEncrypt(byte[] plaintextBytes, int maxBlockSize) {
@@ -57,64 +50,48 @@ public class DavoCrypt4096 {
 			byte[] block = new byte[blockSize];
 			System.arraycopy(plaintextBytes, offset, block, 0, blockSize);
 
-			BigInteger blockInt = new BigInteger(1, block);
-			BigInteger encryptedBlock = blockInt.modPow(publicKey, modulus);
-			encryptedBuilder.append(Base64.getEncoder().encodeToString(encryptedBlock.toByteArray())).append(":");
-
+			encryptedBuilder.append(encryptBlock(block)).append(":");
 			offset += blockSize;
 		}
 
-		return encryptedBuilder.substring(0, encryptedBuilder.length() - 1); // Entferne das letzte ":"
+		return encryptedBuilder.substring(0, encryptedBuilder.length() - 1); // Entferne letztes ":"
+	}
+
+	private String encryptBlock(byte[] block) {
+		BigInteger blockInt = new BigInteger(1, block);
+		BigInteger encrypted = blockInt.modPow(publicKey, modulus);
+		return Base64.getEncoder().encodeToString(encrypted.toByteArray());
 	}
 
 	public String decrypt(String ciphertext) {
-		if (ciphertext == null || ciphertext.isEmpty()) {
-			throw new IllegalArgumentException("Ciphertext cannot be null or empty.");
-		}
+		validateInput(ciphertext, "Ciphertext");
 
-		// Trenne verschlüsselten Text und Signatur
 		String[] parts = ciphertext.split(":");
-		if (parts.length < 2) {
-			throw new SecurityException("Invalid ciphertext format. Signature is missing.");
+		if (parts.length < 3) {
+			throw new SecurityException("Invalid ciphertext format. Missing signature or salt.");
 		}
 
-		// Hole die Signatur
-		String receivedSignature = parts[parts.length - 1];
+		// Hole Signatur und Salt
+		String receivedSignature = parts[parts.length - 2];
+		String receivedSalt = parts[parts.length - 1];
 
-		// Hole den verschlüsselten Text (ohne Signatur)
-		StringBuilder encryptedDataBuilder = new StringBuilder();
-		for (int i = 0; i < parts.length - 1; i++) {
-			if (i > 0) encryptedDataBuilder.append(":");
-			encryptedDataBuilder.append(parts[i]);
-		}
-		String encryptedBase64 = encryptedDataBuilder.toString();
+		// Hole den verschlüsselten Text
+		String encryptedBase64 = String.join(":", java.util.Arrays.copyOf(parts, parts.length - 2));
 
-		String decryptedText;
-		if (encryptedBase64.contains(":")) {
-			decryptedText = decryptSplitCiphertext(encryptedBase64);
-		} else {
-			BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(encryptedBase64));
-			BigInteger decrypted = ciphertextInt.modPow(privateKey, modulus);
-			byte[] decryptedBytes = decrypted.toByteArray();
+		// Entschlüsseln
+		String decryptedText = encryptedBase64.contains(":")
+				? decryptSplitCiphertext(encryptedBase64)
+				: decryptBlock(encryptedBase64);
 
-			// Entferne führende Nullen
-			if (decryptedBytes.length > 0 && decryptedBytes[0] == 0) {
-				decryptedBytes = java.util.Arrays.copyOfRange(decryptedBytes, 1, decryptedBytes.length);
-			}
-
-			decryptedText = new String(decryptedBytes, StandardCharsets.UTF_8);
-		}
-
-		// Überprüfe die Signatur
+		// Signatur überprüfen
 		byte[] decryptedBytes = decryptedText.getBytes(StandardCharsets.UTF_8);
-		String calculatedSignature = generateSignature(decryptedBytes);
+		String calculatedSignature = generateSignature(decryptedBytes, receivedSalt);
 
-		if (calculatedSignature.equals(receivedSignature)) {
-			System.out.println("Integrität und Authentizität wurden erfolgreich geprüft.");
-		} else {
+		if (!calculatedSignature.equals(receivedSignature)) {
 			throw new SecurityException("Signature validation failed. Data integrity is compromised.");
 		}
 
+		System.out.println("Integrität und Authentizität erfolgreich geprüft.");
 		return decryptedText;
 	}
 
@@ -123,35 +100,55 @@ public class DavoCrypt4096 {
 		ByteArrayOutputStream decryptedStream = new ByteArrayOutputStream();
 
 		for (String block : blocks) {
-			BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(block));
-			BigInteger decryptedBlock = ciphertextInt.modPow(privateKey, modulus);
-			byte[] decryptedBytes = decryptedBlock.toByteArray();
-
-			// Entferne führende Nullen, die durch BigInteger hinzugefügt werden können
-			if (decryptedBytes.length > 0 && decryptedBytes[0] == 0) {
-				decryptedBytes = java.util.Arrays.copyOfRange(decryptedBytes, 1, decryptedBytes.length);
-			}
-
+			byte[] decryptedBytes = decryptBlockToBytes(block);
 			try {
 				decryptedStream.write(decryptedBytes);
 			} catch (IOException e) {
-				throw new RuntimeException("Error processing block during decryption", e);
+				throw new RuntimeException("Error processing block during decryption.", e);
 			}
 		}
 
 		return decryptedStream.toString(StandardCharsets.UTF_8);
 	}
 
-	private String generateSignature(byte[] data) {
-		BigInteger signature = BigInteger.ZERO;
+	private String decryptBlock(String encryptedBase64) {
+		byte[] decryptedBytes = decryptBlockToBytes(encryptedBase64);
+		return new String(decryptedBytes, StandardCharsets.UTF_8);
+	}
 
-		// Simpler Signaturalgorithmus basierend auf XOR und Feedback
+	private byte[] decryptBlockToBytes(String encryptedBase64) {
+		BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(encryptedBase64));
+		BigInteger decrypted = ciphertextInt.modPow(privateKey, modulus);
+		byte[] decryptedBytes = decrypted.toByteArray();
+
+		// Entferne führende Nullen
+		return (decryptedBytes.length > 0 && decryptedBytes[0] == 0)
+				? java.util.Arrays.copyOfRange(decryptedBytes, 1, decryptedBytes.length)
+				: decryptedBytes;
+	}
+
+	private String generateSignature(byte[] data, String salt) {
+		BigInteger signature = BigInteger.ZERO;
+		BigInteger saltValue = new BigInteger(salt.getBytes(StandardCharsets.UTF_8));
+
+		// Verbesserter Signaturalgorithmus
 		for (byte b : data) {
-			signature = signature.xor(BigInteger.valueOf(b & 0xFF)).multiply(BigInteger.valueOf(31));
-			signature = signature.add(BigInteger.valueOf(0x9E3779B9L)).mod(modulus);
+			signature = signature.xor(BigInteger.valueOf(b & 0xFF));
+			signature = signature.multiply(saltValue).add(BigInteger.valueOf(0x9E3779B97F4A7C15L)).mod(modulus);
 		}
 
 		return Base64.getEncoder().encodeToString(signature.toByteArray());
+	}
+
+	private String generateSalt() {
+		long timestamp = System.currentTimeMillis();
+		return Base64.getEncoder().encodeToString(BigInteger.valueOf(timestamp).toByteArray());
+	}
+
+	private void validateInput(String input, String name) {
+		if (input == null || input.isEmpty()) {
+			throw new IllegalArgumentException(name + " cannot be null or empty.");
+		}
 	}
 
 	public BigInteger getPublicKey() {

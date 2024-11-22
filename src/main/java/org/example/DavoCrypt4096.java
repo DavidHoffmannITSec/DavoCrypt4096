@@ -25,18 +25,17 @@ public class DavoCrypt4096 {
 
 	public String encrypt(String plaintext) {
 		byte[] plaintextBytes = plaintext.getBytes(StandardCharsets.UTF_8);
-		int maxPlaintextLength = Math.max(1, modulus.bitLength() / 8 - 42); // Sicherstellen, dass die Länge positiv ist
+		int maxPlaintextLength = Math.max(1, modulus.bitLength() / 8 - 42); // Sicherstellen, dass Platz für Padding bleibt
 
-		// Prüfen, ob der Text zu groß ist
 		if (plaintextBytes.length > maxPlaintextLength) {
 			return splitAndEncrypt(plaintextBytes, maxPlaintextLength);
 		}
 
-		// Einzelner Block verschlüsseln
 		BigInteger plaintextInt = new BigInteger(1, plaintextBytes);
 		BigInteger encrypted = plaintextInt.modPow(publicKey, modulus);
 		return Base64.getEncoder().encodeToString(encrypted.toByteArray());
 	}
+
 
 	private String splitAndEncrypt(byte[] plaintextBytes, int maxBlockSize) {
 		StringBuilder encryptedBuilder = new StringBuilder();
@@ -75,15 +74,23 @@ public class DavoCrypt4096 {
 		for (String block : blocks) {
 			BigInteger ciphertextInt = new BigInteger(1, Base64.getDecoder().decode(block));
 			BigInteger decryptedBlock = ciphertextInt.modPow(privateKey, modulus);
+			byte[] decryptedBytes = decryptedBlock.toByteArray();
+
+			// Entferne führende Nullen, die durch BigInteger hinzugefügt werden können
+			if (decryptedBytes.length > 0 && decryptedBytes[0] == 0) {
+				decryptedBytes = java.util.Arrays.copyOfRange(decryptedBytes, 1, decryptedBytes.length);
+			}
+
 			try {
-				decryptedStream.write(decryptedBlock.toByteArray());
+				decryptedStream.write(decryptedBytes);
 			} catch (IOException e) {
 				throw new RuntimeException("Error processing block during decryption", e);
 			}
 		}
 
-		return new String(decryptedStream.toByteArray(), StandardCharsets.UTF_8);
+		return decryptedStream.toString(StandardCharsets.UTF_8);
 	}
+
 
 	public BigInteger getPublicKey() {
 		return publicKey;

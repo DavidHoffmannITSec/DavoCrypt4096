@@ -33,11 +33,9 @@ public class DavoCrypt4096 {
 				? splitAndEncrypt(plaintextBytes, maxPlaintextLength)
 				: encryptBlock(plaintextBytes);
 
-		// Generiere Signatur mit Salt
 		String salt = generateSalt();
 		String signature = generateSignature(plaintextBytes, salt);
 
-		// Verschlüsselter Text + Signatur + Salt
 		return encryptedData + ":" + signature + ":" + salt;
 	}
 
@@ -54,7 +52,7 @@ public class DavoCrypt4096 {
 			offset += blockSize;
 		}
 
-		return encryptedBuilder.substring(0, encryptedBuilder.length() - 1); // Entferne letztes ":"
+		return encryptedBuilder.substring(0, encryptedBuilder.length() - 1);
 	}
 
 	private String encryptBlock(byte[] block) {
@@ -71,23 +69,18 @@ public class DavoCrypt4096 {
 			throw new SecurityException("Invalid ciphertext format. Missing signature or salt.");
 		}
 
-		// Hole Signatur und Salt
 		String receivedSignature = parts[parts.length - 2];
 		String receivedSalt = parts[parts.length - 1];
-
-		// Hole den verschlüsselten Text
 		String encryptedBase64 = String.join(":", java.util.Arrays.copyOf(parts, parts.length - 2));
 
-		// Entschlüsseln
 		String decryptedText = encryptedBase64.contains(":")
 				? decryptSplitCiphertext(encryptedBase64)
 				: decryptBlock(encryptedBase64);
 
-		// Signatur überprüfen
 		byte[] decryptedBytes = decryptedText.getBytes(StandardCharsets.UTF_8);
 		String calculatedSignature = generateSignature(decryptedBytes, receivedSalt);
 
-		if (!calculatedSignature.equals(receivedSignature)) {
+		if (!constantTimeEquals(calculatedSignature, receivedSignature)) {
 			throw new SecurityException("Signature validation failed. Data integrity is compromised.");
 		}
 
@@ -121,23 +114,31 @@ public class DavoCrypt4096 {
 		BigInteger decrypted = ciphertextInt.modPow(privateKey, modulus);
 		byte[] decryptedBytes = decrypted.toByteArray();
 
-		// Entferne führende Nullen
 		return (decryptedBytes.length > 0 && decryptedBytes[0] == 0)
 				? java.util.Arrays.copyOfRange(decryptedBytes, 1, decryptedBytes.length)
 				: decryptedBytes;
 	}
 
 	private String generateSignature(byte[] data, String salt) {
-		BigInteger signature = BigInteger.ZERO;
-		BigInteger saltValue = new BigInteger(salt.getBytes(StandardCharsets.UTF_8));
+		// Kombiniere Daten und Salt
+		byte[] saltedData = combineDataAndSalt(data, salt);
 
-		// Verbesserter Signaturalgorithmus
-		for (byte b : data) {
-			signature = signature.xor(BigInteger.valueOf(b & 0xFF));
-			signature = signature.multiply(saltValue).add(BigInteger.valueOf(0x9E3779B97F4A7C15L)).mod(modulus);
-		}
+		// Hash berechnen mit DavoHash512
+		byte[] hash = DavoHash512.hash(new String(saltedData, StandardCharsets.UTF_8));
+
+		// Hash in Signatur umwandeln
+		BigInteger hashInt = new BigInteger(1, hash);
+		BigInteger signature = hashInt.modPow(privateKey, modulus);
 
 		return Base64.getEncoder().encodeToString(signature.toByteArray());
+	}
+
+	private byte[] combineDataAndSalt(byte[] data, String salt) {
+		byte[] saltBytes = salt.getBytes(StandardCharsets.UTF_8);
+		byte[] combined = new byte[data.length + saltBytes.length];
+		System.arraycopy(data, 0, combined, 0, data.length);
+		System.arraycopy(saltBytes, 0, combined, data.length, saltBytes.length);
+		return combined;
 	}
 
 	private String generateSalt() {
@@ -181,7 +182,15 @@ public class DavoCrypt4096 {
 		return Base64.getEncoder().encodeToString(saltValue.toByteArray());
 	}
 
+	private boolean constantTimeEquals(String a, String b) {
+		if (a.length() != b.length()) return false;
 
+		int result = 0;
+		for (int i = 0; i < a.length(); i++) {
+			result |= a.charAt(i) ^ b.charAt(i);
+		}
+		return result == 0;
+	}
 
 	private void validateInput(String input, String name) {
 		if (input == null || input.isEmpty()) {

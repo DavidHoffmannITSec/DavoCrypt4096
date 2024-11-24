@@ -158,7 +158,7 @@ public class KeyGenerator {
     }
 
     private BigInteger generateFlexiblePublicExponent(BigInteger phi) {
-        BigInteger e = BigInteger.valueOf(65537); // Typische Wahl für RSA
+        BigInteger e = BigInteger.valueOf(65537);
         if (!phi.gcd(e).equals(BigInteger.ONE)) {
             e = BigInteger.valueOf(3);
             while (!phi.gcd(e).equals(BigInteger.ONE)) {

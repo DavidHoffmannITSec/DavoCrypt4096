@@ -202,18 +202,63 @@ public class DavoCrypt4096 {
 
 	public void encryptFile(String filePath) throws IOException {
 		Path path = Path.of(filePath);
-		byte[] fileBytes = Files.readAllBytes(path);
-		String encryptedData = encrypt(new String(fileBytes, StandardCharsets.UTF_8));
+		byte[] fileBytes = Files.readAllBytes(path); // Lies die Datei als Bytes
+		String encryptedData = encrypt(new String(fileBytes, StandardCharsets.ISO_8859_1)); // Konvertiere Bytes zu String
 
-		Files.writeString(path, encryptedData, StandardOpenOption.TRUNCATE_EXISTING);
+		// Speichere die verschlüsselten Daten in der Originaldatei
+		Files.writeString(path, encryptedData, StandardCharsets.ISO_8859_1, StandardOpenOption.TRUNCATE_EXISTING);
 	}
 
 	public void decryptFile(String filePath) throws IOException {
 		Path path = Path.of(filePath);
-		byte[] fileBytes = Files.readAllBytes(path);
-		String decryptedData = decrypt(new String(fileBytes, StandardCharsets.UTF_8));
+		byte[] fileBytes = Files.readAllBytes(path); // Lies die verschlüsselte Datei als Bytes
+		String decryptedData = decrypt(new String(fileBytes, StandardCharsets.ISO_8859_1)); // Entschlüssele den String
 
-		Files.writeString(path, decryptedData, StandardOpenOption.TRUNCATE_EXISTING);
+		// Schreibe die entschlüsselten Daten zurück in die Originaldatei
+		Files.writeString(path, decryptedData, StandardCharsets.ISO_8859_1, StandardOpenOption.TRUNCATE_EXISTING);
+	}
+
+	/**
+	 * Speichert die aktuellen Schlüssel (Public, Private, Modulus) in den angegebenen Pfad.
+	 *
+	 * @param directoryPath Der Pfad des Verzeichnisses, in dem die Schlüssel gespeichert werden sollen.
+	 * @throws IOException Wenn ein Fehler beim Schreiben der Dateien auftritt.
+	 */
+	public void saveKeys(String directoryPath) throws IOException {
+		Path publicKeyPath = Path.of(directoryPath, "public.key");
+		Path privateKeyPath = Path.of(directoryPath, "private.key");
+		Path modulusPath = Path.of(directoryPath, "modulus.key");
+
+		// Speichern der Schlüssel als Textdateien
+		Files.writeString(publicKeyPath, publicKey.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+		Files.writeString(privateKeyPath, privateKey.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+		Files.writeString(modulusPath, modulus.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+		System.out.println("Keys erfolgreich gespeichert in: " + directoryPath);
+	}
+
+	/**
+	 * Lädt die Schlüssel (Public, Private, Modulus) aus den angegebenen Dateien und initialisiert sie.
+	 *
+	 * @param directoryPath Der Pfad des Verzeichnisses, aus dem die Schlüssel geladen werden sollen.
+	 * @throws IOException Wenn ein Fehler beim Lesen der Dateien auftritt.
+	 */
+	public void loadKeys(String directoryPath) throws IOException {
+		Path publicKeyPath = Path.of(directoryPath, "public.key");
+		Path privateKeyPath = Path.of(directoryPath, "private.key");
+		Path modulusPath = Path.of(directoryPath, "modulus.key");
+
+		// Lesen der Schlüssel aus den Dateien
+		String publicKeyString = Files.readString(publicKeyPath).trim();
+		String privateKeyString = Files.readString(privateKeyPath).trim();
+		String modulusString = Files.readString(modulusPath).trim();
+
+		// Initialisierung der Schlüssel
+		this.publicKey = new BigInteger(publicKeyString);
+		this.privateKey = new BigInteger(privateKeyString);
+		this.modulus = new BigInteger(modulusString);
+
+		System.out.println("Keys erfolgreich geladen aus: " + directoryPath);
 	}
 
 	public BigInteger getPublicKey() {
